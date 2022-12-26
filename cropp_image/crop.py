@@ -17,8 +17,7 @@ app = Sanic(__name__)
 ydb_driver: ydb.Driver
 config: dict
 
-ACCESS_KEY=os.environ['ACCESS_KEY']
-SECRET_KEY=os.environ['SECRET_KEY']
+
 
 @app.after_server_start
 async def after_server_start(app, loop):
@@ -67,8 +66,6 @@ def getPhoto(bucket, key):
     session = boto3.session.Session()
     s3 = session.client(
         service_name='s3',
-        aws_access_key_id=ACCESS_KEY,
-        aws_secret_access_key=SECRET_KEY,
         endpoint_url='https://storage.yandexcloud.net'
     )
   
@@ -83,8 +80,6 @@ def putPhoto(bucket, key, content):
     session = boto3.session.Session()
     s3 = session.client(
         service_name='s3',
-        aws_access_key_id=ACCESS_KEY,
-        aws_secret_access_key=SECRET_KEY,
         endpoint_url='https://storage.yandexcloud.net'
     )
   

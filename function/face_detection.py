@@ -7,8 +7,7 @@ import json
 URL = os.environ['URL']
 MQ_URL = os.environ['MQ_URL']
 API_KEY = os.environ['API_SECRET_KEY']
-ACCESS_KEY=os.environ['ACCESS_KEY']
-SECRET_KEY=os.environ['SECRET_KEY']
+
 
 
 
@@ -27,8 +26,6 @@ def get_object(bucket, name):
     session = boto3.session.Session()
     s3 = session.client(
         service_name='s3',
-    aws_access_key_id=ACCESS_KEY,
-    aws_secret_access_key=SECRET_KEY,
         endpoint_url='https://storage.yandexcloud.net'
     )
     print(f"Getting {name} file from {bucket}")
@@ -69,8 +66,6 @@ def send_to_queue(object_key, faces):
         service_name='sqs',
         endpoint_url='https://message-queue.api.cloud.yandex.net',
         region_name='ru-central1',
-            aws_access_key_id=ACCESS_KEY,
-    aws_secret_access_key=SECRET_KEY
     )
     messages = [to_message(object_key, face) for face in faces]
     for message in messages:

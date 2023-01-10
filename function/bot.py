@@ -1,155 +1,106 @@
-import asyncio
-import json
-import logging
 import os
-
-from aiogram import Bot, Dispatcher, types
 import ydb
 import ydb.iam
-
-
-# Logger initialization and logging level setting
-log = logging.getLogger(__name__)
-log.setLevel(os.environ.get('LOGGING_LEVEL', 'INFO').upper())
-
-# Handlers
-async def start(message: types.Message):
-    await message.reply('Hello, {}!'.format(message.from_user.first_name))
+import json
+import requests
 
 TOKEN = os.getenv("BOT_TOKEN")
-BOT  = Bot(TOKEN)
-dp = Dispatcher(BOT)
+
 driver: ydb.Driver
 PHOTO_LINK_TEMPLATE = os.getenv("PHOTO_LINK_TEMPLATE")
 OBJECT_LINK_TEMPLATE = os.getenv("OBJECT_LINK_TEMPLATE")
 
-
-def get_driver():
+def initDb():
     endpoint = os.getenv("DB_ENDPOINT")
-    path = os.getenv("DB_PATH")
+    database = os.getenv("DB_DATABASE")
     creds = ydb.iam.MetadataUrlCredentials()
+
     driver_config = ydb.DriverConfig(
-        endpoint, path, credentials=creds
+        endpoint, database, credentials=creds
     )
+
     return ydb.Driver(driver_config)
 
-
-
-
-
-def add_name_to_last_photo(name):
-    query = f"""
-        SELECT * FROM photo WHERE name is NULL LIMIT 1;
-        """
-    session = driver.table_client.session().create()
-    result_sets = session.transaction().execute(query, commit_tx=True)
-    face_id = ''
-    for row in result_sets[0].rows:
-        face_id = row.face_id
-    if face_id == '':
-        return
-    query = f"""
-    UPDATE photo SET name = '{name}' WHERE face_id = '{face_id}';
-    """
-    session.transaction().execute(query, commit_tx=True)
-    session.closing()
-
-
-async def find(message: types.Message):
-    
-    query = f"""
-    SELECT DISTINCT original_id, name FROM photo WHERE name = '{name}';
-    """
-    session = driver.table_client.session().create()
-    result_sets = session.transaction().execute(query, commit_tx=True)
-    session.closing()
-    if len(result_sets[0].rows) == 0:
-        await message.answer(f'No photos with {name}')
-    for row in result_sets[0].rows:
-        object_id = row.original_id
-        photo_url = OBJECT_LINK_TEMPLATE.format(object_id)
-        await message.answer_photo(photo=photo_url)
-
-
-
-def set_up():
-    global driver
-    driver = get_driver()
-    driver.wait(timeout=5)
-
-
-# def handler(event, context):
-#     set_up()
-#     request = event['body']
-#     update = telegram.Update.de_json(json.loads(request), BOT)
-
-#     chat_id = update.message.chat.id
-#     command = update.message.text.encode('utf-8').decode()
-
-#     if command == '/start':
-#         BOT.sendMessage(chat_id=chat_id, text='Hello)')
-#         return
-#     if command == '/getface':
-#         get_face(chat_id)
-#         return
-#     if command.startswith('/find'):
-#         args = command.split(' ')
-#         find(chat_id, args[1])
-#         return
-#     add_name_to_last_photo(command)
-#     BOT.sendMessage(chat_id=chat_id, text=f'Added new name {command}')
-
-
-async def echo(message: types.Message):
-    await message.answer(message.text)
-
-async def get_face(message: types.Message):
+def getFace(chat_id):
     query = f"""
     SELECT * FROM photo WHERE name is NULL LIMIT 1;
     """
     session = driver.table_client.session().create()
     result_sets = session.transaction().execute(query, commit_tx=True)
     session.closing()
+
     for row in result_sets[0].rows:
-        face_id = row.face_id
-        photo_url = PHOTO_LINK_TEMPLATE.format(face_id)
-        await message.answer_photo(photo=photo_url)
+        face_id = row.face_id.decode("utf-8")
+        photo_url = PHOTO_LINK_TEMPLATE + face_id
+        sendPhoto(chat_id, photo_url)
+
+def setNameToPhoto(name):
+    query = f"""
+        SELECT * FROM photo WHERE name is NULL LIMIT 1;
+        """
+    session = driver.table_client.session().create()
+    result_sets = session.transaction().execute(query, commit_tx=True)
+
+    face_id = ''
+    for row in result_sets[0].rows:
+        face_id = row.face_id.decode("utf-8")
+    if face_id == '':
         return
 
-
-# Functions for Yandex.Cloud
-async def register_handlers(dp: Dispatcher):
-    """Registration all handlers before processing update."""
-
-    dp.register_message_handler(start, commands=['start'])
-    dp.register_message_handler(get_face, commands=['getface'])
-
-    log.debug('Handlers are registered.')
-
-
-async def process_event(event, dp: Dispatcher):
+    query = f"""
+    UPDATE photo SET name = '{name}' WHERE face_id = '{face_id}';
     """
-    Converting an Yandex.Cloud functions event to an update and
-    handling tha update.
+    session.transaction().execute(query, commit_tx=True)
+    session.closing()
+
+def find(chat_id, name):
+    query = f"""
+    SELECT DISTINCT original_id, name FROM photo WHERE name = '{name}';
     """
+    session = driver.table_client.session().create()
+    result_sets = session.transaction().execute(query, commit_tx=True)
+    session.closing()
 
-    update = json.loads(event['body'])
-    log.debug('Update: ' + str(update))
+    if len(result_sets[0].rows) == 0:
+        sendMessage(chat_id, f'Нет фотографии с именем {name}')
+    for row in result_sets[0].rows:
+        object_id = row.original_id.decode("utf-8")
+        photo_url = OBJECT_LINK_TEMPLATE + object_id
+        sendPhoto(chat_id, photo_url)
 
-    Bot.set_current(dp.bot)
-    update = types.Update.to_object(update)
-    await dp.process_update(update)
+def init():
+    global driver
+    driver = initDb()
+    driver.wait(timeout=5)
 
-async def handler(event, context):
-    """Yandex.Cloud functions handler."""
+def handler(event, context):
+    init()
+    
+    body = json.loads(event['body'])
+    chat_id = body['message']['from']['id']
+    command = body['message']['text']
 
-    if event['httpMethod'] == 'POST':
-        BOT  = Bot(TOKEN)
-        dp = Dispatcher(BOT)
-        set_up()
+    if command == '/start':
+        sendMessage(chat_id, 'Bot started')
+        return
+    if command == '/getface':
+        getFace(chat_id)
+        return
+    if command.startswith('/find'):
+        args = command.split(' ')
+        find(chat_id, args[1])
+        return
 
-        await register_handlers(dp)
-        await process_event(event, dp)
+    setNameToPhoto(command)
+    sendMessage(chat_id, f'Добавлено новое имя {command}')
 
-        return {'statusCode': 200, 'body': 'ok'}
-    return {'statusCode': 405}
+def sendMessage(chat_id, text):
+    url = 'https://api.telegram.org/bot' + TOKEN + '/' + 'sendMessage'
+    data = {'chat_id': chat_id, 'text': text}
+    r = requests.post(url, data=data)
+
+def sendPhoto(chat_id, photo):
+    url = 'https://api.telegram.org/bot' + TOKEN + '/' + 'sendPhoto'
+    data = {'chat_id': chat_id, 'photo': photo}
+    r = requests.post(url, data=data)
+    print(r)

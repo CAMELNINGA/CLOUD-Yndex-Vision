@@ -110,6 +110,7 @@ def handle(message):
     body = json.loads(message['details']['message']['body'])
     photo = Image.open(io.BytesIO(getPhoto(config['PHOTO_BUCKET'], body['object_key'])))
     face = body['face']
+    rand = random.Random()
   
     count = 0
     x = set()
@@ -127,7 +128,7 @@ def handle(message):
     top = sorted_y[0]
     bottom = sorted_y[1]
   
-    face_id = f"{body['object_key'].removesuffix('.jpg')}_{count}.jpg"
+    face_id = f"{rand.getrandbits(64)}_{body['object_key']}"
   
     cutFace = photo.crop((left, top, right, bottom))
     bytes = io.BytesIO()
